@@ -27,112 +27,13 @@ api.interceptors.request.use(async config => {
   return config;
 });
 
-export interface SignInResponse {
-  id: number;
-  fullName: string;
-  email: string;
-  role: string;
-  accessToken: string;
-}
-
-export interface SignUpResponse {
-  message: string;
-}
-
-export interface TeacherDashboardSummary {
-  totalExams?: number;
-  totalClasses?: number;
-  totalStudents?: number;
-  pendingFeedback?: number;
-  activeSessions?: number;
-  examsByStatus?: Record<string, number | undefined>;
-  revenueThisMonth?: number;
-  examRevenueTrend?: number;
-}
-
-export interface TeacherDashboardRecent {
-  exams?: Array<{
-    id: string | number;
-    title: string;
-    created_at: string;
-  }>;
-  classes?: Array<{
-    id: string | number;
-    className: string;
-    classCode?: string;
-    created_at: string;
-  }>;
-  notifications?: Array<{
-    id: string | number;
-    title: string;
-    description?: string;
-    created_at: string;
-  }>;
-  purchases?: Array<{
-    id: string | number;
-    examName: string;
-    buyerName?: string;
-    amount?: number;
-    purchased_at: string;
-  }>;
-}
-
-export interface TeacherDashboardStats {
-  summary?: TeacherDashboardSummary;
-  recent?: TeacherDashboardRecent;
-}
-
-export const AuthService = {
-  login: async (email: string, password: string) => {
-    console.log('[AuthService.login] Sending request', {
-      email,
-      endpoint: '/api/auth/signin',
-    });
-    const { data } = await api.post<SignInResponse>('/api/auth/signin', {
-      email,
-      password,
-    });
-    console.log('[AuthService.login] Response', data);
-    const token = data.accessToken;
-    await AsyncStorage.multiSet([
-      ['access_token', token],
-      ['user_full_name', data.fullName || ''],
-      ['user_role', data.role || 'student'],
-    ]);
-    return data;
-  },
-  register: async (
-    fullName: string,
-    email: string,
-    password: string,
-    role: 'student' | 'teacher',
-    confirmPassword?: string,
-  ) => {
-    console.log('[AuthService.register] Sending request', {
-      fullName,
-      email,
-      role,
-      endpoint: '/api/auth/signup',
-    });
-    const { data } = await api.post<SignUpResponse>('/api/auth/signup', {
-      fullName,
-      email,
-      password,
-      role,
-      confirmPassword: confirmPassword ?? password,
-    });
-    console.log('[AuthService.register] Response', data);
-    return data;
-  },
-  logout: async () => {
-    await AsyncStorage.removeItem('access_token');
-  },
+export const buildQueryString = (params: Record<string, string | number | undefined>) => {
+  const parts: string[] = [];
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    }
+  });
+  return parts.join('&');
 };
 
-export const TeacherService = {
-  getDashboardStats: async (): Promise<TeacherDashboardStats> => {
-    const { data } = await api.get('/api/teacher/dashboard/stats');
-    const payload = (data as { data?: TeacherDashboardStats })?.data;
-    return payload ?? (data as TeacherDashboardStats);
-  },
-};

@@ -1,20 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import StatCard from '../common/StatCard';
+import { TeacherService } from '../../services/teacherDashboard';
+import { TeacherClassService } from '../../services/teacherClass';
 import {
+  TeacherClassSummary,
   TeacherDashboardStats,
-  TeacherService,
-} from '../../services/api';
+} from '../../types/teacher';
 import { RootStackParamList } from '../../navigation/types';
 
 type SectionId = 'overview' | 'exams' | 'classes' | 'notifications' | 'actions';
@@ -29,13 +34,19 @@ const TAB_ITEMS: Array<{ id: SectionId; label: string }> = [
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TeacherDashboard'>;
 
-const TeacherDashboardScreen = (_props: Props) => {
+const TeacherDashboardScreen = ({ navigation }: Props) => {
   const [stats, setStats] = useState<TeacherDashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>('');
   const [teacherName, setTeacherName] = useState('Giáo viên');
   const [activeTab, setActiveTab] = useState<SectionId>('overview');
+  const [classes, setClasses] = useState<TeacherClassSummary[]>([]);
+  const [classesLoading, setClassesLoading] = useState(false);
+  const [classesError, setClassesError] = useState('');
+  const [classSearch, setClassSearch] = useState('');
+  const [copiedClassId, setCopiedClassId] = useState<string | number | null>(null);
+  const [deletingClassId, setDeletingClassId] = useState<string | number | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem('user_full_name').then(cached => {
@@ -55,7 +66,6 @@ const TeacherDashboardScreen = (_props: Props) => {
       setError('Không thể tải dữ liệu, thử lại sau.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
 
@@ -63,19 +73,105 @@ const TeacherDashboardScreen = (_props: Props) => {
     loadStats();
   }, [loadStats]);
 
+  const loadClasses = useCallback(async () => {
+    try {
+      setClassesLoading(true);
+      setClassesError('');
+      const list = await TeacherClassService.getClasses();
+      setClasses(list);
+    } catch (err) {
+      console.error('[TeacherDashboard] loadClasses error', err);
+      setClassesError('Không thể tải danh sách lớp học.');
+    } finally {
+      setClassesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadClasses();
+  }, [loadClasses]);
+
   const summary = stats?.summary ?? {};
   const recentExams = stats?.recent?.exams ?? [];
-  const recentClasses = stats?.recent?.classes ?? [];
   const notificationItems = stats?.recent?.notifications ?? [];
+
+  const filteredClasses = useMemo(() => {
+    const keyword = classSearch.trim().toLowerCase();
+    if (!keyword) {
+      return classes;
+    }
+    return classes.filter(item =>
+      item.className.toLowerCase().includes(keyword) ||
+      item.classCode.toLowerCase().includes(keyword),
+    );
+  }, [classes, classSearch]);
+
+  const totalStudents = useMemo(
+    () => classes.reduce((sum, item) => sum + (item.studentCount ?? 0), 0),
+    [classes],
+  );
 
   const quickActions = useMemo(
     () => [
       { label: '+ Tạo kỳ thi mới', onPress: () => console.log('Create Exam') },
-      { label: '+ Tạo lớp học mới', onPress: () => console.log('Create Class') },
-      { label: 'Xem danh sách kỳ thi', onPress: () => console.log('View Exams') },
+      {
+        label: '+ Tạo lớp học mới',
+        onPress: () => navigation.navigate('TeacherCreateClass'),
+      },
+      {
+        label: 'Danh sách lớp học',
+        onPress: () => navigation.navigate('TeacherClasses'),
+      },
       { label: 'Quản lý ngân sách', onPress: () => console.log('Manage budget') },
     ],
+    [navigation],
+  );
+
+  const handleCopyClassCode = useCallback(async (classItem: TeacherClassSummary) => {
+    if (!classItem.classCode) {
+      return;
+    }
+    try {
+      await Clipboard.setString(classItem.classCode);
+      setCopiedClassId(classItem.id);
+      setTimeout(() => setCopiedClassId(null), 2000);
+    } catch (err) {
+      console.error('[TeacherDashboard] copy class code error', err);
+    }
+  }, []);
+
+  const performDeleteClass = useCallback(
+    async (classItem: TeacherClassSummary) => {
+      try {
+        setDeletingClassId(classItem.id);
+        await TeacherClassService.deleteClass(classItem.id);
+        setClasses(prev => prev.filter(item => item.id !== classItem.id));
+      } catch (err) {
+        console.error('[TeacherDashboard] delete class error', err);
+        Alert.alert('Lỗi', 'Xóa lớp thất bại, vui lòng thử lại.');
+      } finally {
+        setDeletingClassId(null);
+      }
+    },
     [],
+  );
+
+  const confirmDeleteClass = useCallback(
+    (classItem: TeacherClassSummary) => {
+      Alert.alert(
+        'Xóa lớp học',
+        `Bạn chắc chắn muốn xóa lớp "${classItem.className}"?`,
+        [
+          { text: 'Hủy', style: 'cancel' },
+          {
+            text: 'Xóa',
+            style: 'destructive',
+            onPress: () => performDeleteClass(classItem),
+          },
+        ],
+      );
+    },
+    [performDeleteClass],
   );
 
   const formatCurrency = (value?: number) =>
@@ -175,27 +271,81 @@ const TeacherDashboardScreen = (_props: Props) => {
     </View>
   );
 
+  const handleNavigateClassDetail = (classSummary: TeacherClassSummary) => {
+    navigation.navigate('TeacherClassDetail', {
+      classCode: classSummary.classCode,
+      classId: classSummary.id,
+    });
+  };
+
   const renderClasses = () => (
     <View style={styles.section}>
       <SectionHeader
         title="Lớp học"
-        actionLabel="Quản lý lớp"
-        onAction={() => console.log('Navigate to classes')}
+        actionLabel="Danh sách"
+        onAction={() => navigation.navigate('TeacherClasses')}
       />
-      {recentClasses.length > 0 ? (
-        recentClasses.map(cls => (
-          <ItemRow
-            key={cls.id}
-            title={cls.className}
-            subtitle={`Mã: ${cls.classCode ?? '—'} • ${new Date(
-              cls.created_at,
-            ).toLocaleDateString('vi-VN')}`}
-            onPress={() => console.log('Open class', cls.id)}
+      <View style={styles.classStatsRow}>
+        <View style={styles.classStatCard}>
+          <Text style={styles.classStatLabel}>Tổng số lớp</Text>
+          <Text style={styles.classStatValue}>{classes.length}</Text>
+          <Text style={styles.classStatHint}>Bạn đang quản lý</Text>
+        </View>
+        <View style={styles.classStatCard}>
+          <Text style={styles.classStatLabel}>Học viên</Text>
+          <Text style={styles.classStatValue}>{totalStudents}</Text>
+          <Text style={styles.classStatHint}>Đã tham gia lớp</Text>
+        </View>
+        <View style={styles.classStatCard}>
+          <Text style={styles.classStatLabel}>Sau lọc</Text>
+          <Text style={styles.classStatValue}>{filteredClasses.length}</Text>
+          <Text style={styles.classStatHint}>Phù hợp từ khóa</Text>
+        </View>
+      </View>
+
+      <View style={styles.classSearchRow}>
+        <View style={styles.classSearchInput}>
+          <TextInput
+            placeholder="Tìm kiếm lớp theo tên hoặc mã"
+            placeholderTextColor="#94a3b8"
+            value={classSearch}
+            onChangeText={setClassSearch}
+            style={styles.searchTextField}
           />
-        ))
+        </View>
+        <Pressable style={styles.filterButton} onPress={() => console.log('Filter classes')}>
+          <Text style={styles.filterButtonText}>Bộ lọc</Text>
+        </Pressable>
+      </View>
+
+      {classesLoading ? (
+        <View style={styles.loaderBox}>
+          <ActivityIndicator color="#4f46e5" />
+          <Text style={styles.loaderText}>Đang tải lớp học...</Text>
+        </View>
+      ) : classesError ? (
+        <Pressable style={styles.errorBox} onPress={loadClasses}>
+          <Text style={styles.errorText}>{classesError}</Text>
+          <Text style={styles.retryText}>Chạm để thử lại</Text>
+        </Pressable>
+      ) : filteredClasses.length === 0 ? (
+        <EmptyState message="Chưa có lớp nào hoặc không trùng từ khóa." />
       ) : (
-        <EmptyState message="Chưa có lớp học nào" />
+        <View style={styles.classList}>
+          {filteredClasses.map(item => (
+            <ClassCard
+              key={item.id}
+              data={item}
+              onCopy={() => handleCopyClassCode(item)}
+              onDelete={() => confirmDeleteClass(item)}
+              deleting={deletingClassId === item.id}
+              copied={copiedClassId === item.id}
+              onPress={() => handleNavigateClassDetail(item)}
+            />
+          ))}
+        </View>
       )}
+
       <View style={styles.inlineButtons}>
         <Pressable style={styles.inlinePrimary} onPress={() => console.log('Create class')}>
           <Text style={styles.inlinePrimaryText}>+ Lớp mới</Text>
@@ -268,6 +418,12 @@ const TeacherDashboardScreen = (_props: Props) => {
     }
   };
 
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadStats(), loadClasses()]);
+    setRefreshing(false);
+  }, [loadClasses, loadStats]);
+
   if (loading && !refreshing && !stats) {
     return (
       <View style={styles.center}>
@@ -282,15 +438,12 @@ const TeacherDashboardScreen = (_props: Props) => {
       <ScrollView
         style={styles.content}
         contentContainerStyle={styles.contentInner}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              loadStats();
-            }}
-          />
-        }>
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
+          }>
         <View style={styles.topBar}>
           <View>
             <Text style={styles.brandText}>PTIT Quiz</Text>
@@ -394,6 +547,55 @@ const EmptyState = ({ message }: { message: string }) => (
   <View style={styles.emptyBox}>
     <Text style={styles.emptyText}>{message}</Text>
   </View>
+);
+
+const ClassCard = ({
+  data,
+  onCopy,
+  copied,
+  onDelete,
+  deleting,
+  onPress,
+}: {
+  data: TeacherClassSummary;
+  onCopy: () => void;
+  copied: boolean;
+  onDelete: () => void;
+  deleting: boolean;
+  onPress?: () => void;
+}) => (
+  <Pressable style={styles.classCard} onPress={onPress}>
+    <View style={styles.classCardHeader}>
+      <View>
+        <Text style={styles.classCode}>{data.classCode}</Text>
+        <Text style={styles.className}>{data.className}</Text>
+      </View>
+      <View style={styles.classStudentBadge}>
+        <Text style={styles.classStudentText}>{data.studentCount} HV</Text>
+      </View>
+    </View>
+    <View style={styles.classMetaRow}>
+      <Text style={styles.classMetaLabel}>Ngày tạo</Text>
+      <Text style={styles.classMetaValue}>
+        {data.createdAt
+          ? new Date(data.createdAt).toLocaleDateString('vi-VN')
+          : 'Chưa cập nhật'}
+      </Text>
+    </View>
+    <View style={styles.classActionsRow}>
+      <Pressable style={styles.classGhostButton} onPress={onCopy}>
+        <Text style={styles.classGhostText}>{copied ? 'Đã copy' : 'Copy mã'}</Text>
+      </Pressable>
+      <Pressable
+        style={[styles.classGhostButton, styles.classDeleteButton]}
+        onPress={onDelete}
+        disabled={deleting}>
+        <Text style={styles.classDeleteText}>
+          {deleting ? 'Đang xóa...' : 'Xóa'}
+        </Text>
+      </Pressable>
+    </View>
+  </Pressable>
 );
 
 const NotificationCard = ({
@@ -740,6 +942,150 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     color: '#94a3b8',
+  },
+  classStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 12,
+  },
+  classStatCard: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  classStatLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  classStatValue: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 6,
+  },
+  classStatHint: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginTop: 2,
+  },
+  classSearchRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  classSearchInput: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#f8fafc',
+  },
+  searchTextField: {
+    fontSize: 14,
+    color: '#0f172a',
+  },
+  filterButton: {
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#cbd5f5',
+    justifyContent: 'center',
+    backgroundColor: '#eef2ff',
+  },
+  filterButtonText: {
+    color: '#4338ca',
+    fontWeight: '600',
+  },
+  loaderBox: {
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 24,
+  },
+  loaderText: {
+    color: '#475569',
+  },
+  classList: {
+    gap: 12,
+  },
+  classCard: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    padding: 16,
+    backgroundColor: '#fff',
+  },
+  classCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  classCode: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: '#4338ca',
+    fontWeight: '700',
+  },
+  className: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 4,
+  },
+  classStudentBadge: {
+    borderRadius: 999,
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  classStudentText: {
+    color: '#15803d',
+    fontWeight: '700',
+  },
+  classMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  classMetaLabel: {
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+  classMetaValue: {
+    fontSize: 13,
+    color: '#0f172a',
+    fontWeight: '600',
+  },
+  classActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  classGhostButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  classGhostText: {
+    color: '#4338ca',
+    fontWeight: '600',
+  },
+  classDeleteButton: {
+    borderColor: '#fecaca',
+  },
+  classDeleteText: {
+    color: '#dc2626',
+    fontWeight: '600',
   },
 });
 

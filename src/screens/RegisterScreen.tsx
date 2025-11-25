@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import AuthTextInput from '../components/AuthTextInput';
-import { AuthService } from '../services/api';
+import { AuthService } from '../services/auth';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 type AuthStackParamList = {
