@@ -3,14 +3,9 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthService } from '../services/api';
+import { RootStackParamList } from '../navigation/types';
 
-type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  Home: undefined;
-};
-
-type Props = NativeStackScreenProps<AuthStackParamList, 'Home'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 const HomeScreen = ({ navigation }: Props) => {
   const [userName, setUserName] = useState<string>('Người dùng');
@@ -34,6 +29,11 @@ const HomeScreen = ({ navigation }: Props) => {
     <View style={styles.container}>
       <Text style={styles.title}>Xin chào, {userName}</Text>
       <Text style={styles.subtitle}>Bạn đã đăng nhập thành công.</Text>
+      <Pressable
+        onPress={() => navigation.navigate('TeacherDashboard')}
+        style={styles.primaryButton}>
+        <Text style={styles.primaryText}>Đi tới Dashboard Giáo viên</Text>
+      </Pressable>
       <Pressable onPress={handleLogout} style={styles.logoutButton}>
         <Text style={styles.logoutText}>Đăng xuất</Text>
       </Pressable>
@@ -58,6 +58,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#5a5a5f',
     marginBottom: 24,
+  },
+  primaryButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: '#4f46e5',
+    marginBottom: 16,
+  },
+  primaryText: {
+    color: '#fff',
+    fontWeight: '600',
   },
   logoutButton: {
     paddingHorizontal: 24,

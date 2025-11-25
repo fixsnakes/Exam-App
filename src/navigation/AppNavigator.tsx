@@ -3,14 +3,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
+import TeacherDashboardScreen from '../screens/teacher/TeacherDashboardScreen';
+import { RootStackParamList } from './types';
 
-export type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  Home: undefined;
-};
-
-const Stack = createNativeStackNavigator<AuthStackParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const AppNavigator = () => {
   return (
@@ -21,6 +17,10 @@ const AppNavigator = () => {
         <Stack.Screen name="Login" component= {LoginScreen} />
         <Stack.Screen name="Register" component={RegisterScreen} />
         <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen
+          name="TeacherDashboard"
+          component={TeacherDashboardScreen}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

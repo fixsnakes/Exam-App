@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
 declare const process:
@@ -37,6 +37,49 @@ export interface SignInResponse {
 
 export interface SignUpResponse {
   message: string;
+}
+
+export interface TeacherDashboardSummary {
+  totalExams?: number;
+  totalClasses?: number;
+  totalStudents?: number;
+  pendingFeedback?: number;
+  activeSessions?: number;
+  examsByStatus?: Record<string, number | undefined>;
+  revenueThisMonth?: number;
+  examRevenueTrend?: number;
+}
+
+export interface TeacherDashboardRecent {
+  exams?: Array<{
+    id: string | number;
+    title: string;
+    created_at: string;
+  }>;
+  classes?: Array<{
+    id: string | number;
+    className: string;
+    classCode?: string;
+    created_at: string;
+  }>;
+  notifications?: Array<{
+    id: string | number;
+    title: string;
+    description?: string;
+    created_at: string;
+  }>;
+  purchases?: Array<{
+    id: string | number;
+    examName: string;
+    buyerName?: string;
+    amount?: number;
+    purchased_at: string;
+  }>;
+}
+
+export interface TeacherDashboardStats {
+  summary?: TeacherDashboardSummary;
+  recent?: TeacherDashboardRecent;
 }
 
 export const AuthService = {
@@ -86,3 +129,10 @@ export const AuthService = {
   },
 };
 
+export const TeacherService = {
+  getDashboardStats: async (): Promise<TeacherDashboardStats> => {
+    const { data } = await api.get('/api/teacher/dashboard/stats');
+    const payload = (data as { data?: TeacherDashboardStats })?.data;
+    return payload ?? (data as TeacherDashboardStats);
+  },
+};
