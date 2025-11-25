@@ -10,14 +10,9 @@ import {
 import AuthTextInput from '../components/AuthTextInput';
 import { AuthService } from '../services/api';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/types';
 
-type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  Home: undefined;
-};
-
-type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 const LoginScreen = ({ navigation }: Props) => {
   const [email, setEmail] = useState('');
@@ -35,7 +30,7 @@ const LoginScreen = ({ navigation }: Props) => {
       console.log('[LoginScreen] Attempting login', { email });
       await AuthService.login(email.trim(), password);
       console.log('[LoginScreen] Login success');
-      navigation.replace('Home');
+      navigation.replace('TeacherDashboard');
     } catch (error: any) {
       console.log('[LoginScreen] Login error', error?.response || error);
       Alert.alert(

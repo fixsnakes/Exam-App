@@ -1,10 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -21,27 +19,23 @@ import { RootStackParamList } from '../../navigation/types';
 
 type SectionId = 'overview' | 'exams' | 'classes' | 'notifications' | 'actions';
 
-const SECTION_TABS: Array<{ id: SectionId; label: string }> = [
+const TAB_ITEMS: Array<{ id: SectionId; label: string }> = [
   { id: 'overview', label: 'Tổng quan' },
   { id: 'exams', label: 'Kỳ thi' },
   { id: 'classes', label: 'Lớp học' },
   { id: 'notifications', label: 'Thông báo' },
-  { id: 'actions', label: 'Thao tác nhanh' },
+  { id: 'actions', label: 'Thao tác' },
 ];
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TeacherDashboard'>;
 
 const TeacherDashboardScreen = (_props: Props) => {
-  const scrollRef = useRef<ScrollView>(null);
   const [stats, setStats] = useState<TeacherDashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>('');
   const [teacherName, setTeacherName] = useState('Giáo viên');
   const [activeTab, setActiveTab] = useState<SectionId>('overview');
-  const [sectionPositions, setSectionPositions] = useState<
-    Partial<Record<SectionId, number>>
-  >({ overview: 0 });
 
   useEffect(() => {
     AsyncStorage.getItem('user_full_name').then(cached => {
@@ -79,6 +73,7 @@ const TeacherDashboardScreen = (_props: Props) => {
       { label: '+ Tạo kỳ thi mới', onPress: () => console.log('Create Exam') },
       { label: '+ Tạo lớp học mới', onPress: () => console.log('Create Class') },
       { label: 'Xem danh sách kỳ thi', onPress: () => console.log('View Exams') },
+      { label: 'Quản lý ngân sách', onPress: () => console.log('Manage budget') },
     ],
     [],
   );
@@ -90,47 +85,190 @@ const TeacherDashboardScreen = (_props: Props) => {
       maximumFractionDigits: 0,
     }).format(value ?? 0);
 
-  const registerSectionPosition = useCallback(
-    (sectionId: SectionId, y: number) => {
-      setSectionPositions(prev =>
-        prev[sectionId] === y ? prev : { ...prev, [sectionId]: y },
-      );
-    },
-    [],
+  const renderOverview = () => (
+    <>
+      <View style={styles.hero}>
+        <Text style={styles.heroTitle}>Chào mừng trở lại, {teacherName}!</Text>
+        <Text style={styles.heroSubtitle}>
+          Theo dõi trạng thái lớp học, kỳ thi và doanh thu ngay trên ứng dụng.
+        </Text>
+      </View>
+      {!!error && (
+        <Pressable style={styles.errorBox} onPress={loadStats}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.retryText}>Chạm để thử lại</Text>
+        </Pressable>
+      )}
+      <View style={styles.statGrid}>
+        <StatCard
+          label="Tổng kỳ thi"
+          value={summary.totalExams ?? 0}
+          subtitle={`${summary.examsByStatus?.ongoing ?? 0} đang diễn ra`}
+          accentColor="#4f46e5"
+        />
+        <StatCard
+          label="Lớp học"
+          value={summary.totalClasses ?? 0}
+          subtitle={`${summary.totalStudents ?? 0} học sinh`}
+          accentColor="#10b981"
+        />
+        <StatCard
+          label="Yêu cầu chấm bài"
+          value={summary.pendingFeedback ?? 0}
+          subtitle="Cần phản hồi"
+          accentColor="#f59e0b"
+        />
+        <StatCard
+          label="Phiên thi hoạt động"
+          value={summary.activeSessions ?? 0}
+          accentColor="#0ea5e9"
+        />
+      </View>
+      <View style={styles.revenueRow}>
+        <View style={styles.revenueCard}>
+          <Text style={styles.revenueLabel}>Doanh thu tháng này</Text>
+          <Text style={styles.revenueValue}>
+            {formatCurrency(summary.revenueThisMonth)}
+          </Text>
+          <Text style={styles.revenueTrend}>
+            {summary.examRevenueTrend ?? 12}% so với tháng trước
+          </Text>
+        </View>
+        <View style={styles.revenueCardSecondary}>
+          <Text style={styles.revenueLabel}>Sắp diễn ra</Text>
+          <Text style={styles.revenueValue}>
+            {summary.examsByStatus?.upcoming ?? 0}
+          </Text>
+          <Text style={styles.revenueTrend}>Kỳ thi cần chuẩn bị</Text>
+        </View>
+      </View>
+    </>
   );
 
-  const handleTabPress = useCallback(
-    (sectionId: SectionId) => {
-      setActiveTab(sectionId);
-      const position = sectionPositions[sectionId];
-      if (typeof position === 'number') {
-        scrollRef.current?.scrollTo({
-          y: Math.max(position - 90, 0),
-          animated: true,
-        });
-      }
-    },
-    [sectionPositions],
+  const renderExams = () => (
+    <View style={styles.section}>
+      <SectionHeader
+        title="Kỳ thi"
+        actionLabel="Quản lý kỳ thi"
+        onAction={() => console.log('Navigate to exams')}
+      />
+      {recentExams.length > 0 ? (
+        recentExams.map(exam => (
+          <ItemRow
+            key={exam.id}
+            title={exam.title}
+            subtitle={new Date(exam.created_at).toLocaleDateString('vi-VN')}
+            onPress={() => console.log('Open exam', exam.id)}
+          />
+        ))
+      ) : (
+        <EmptyState message="Chưa có kỳ thi nào" />
+      )}
+      <View style={styles.inlineButtons}>
+        <Pressable style={styles.inlinePrimary} onPress={() => console.log('Create exam')}>
+          <Text style={styles.inlinePrimaryText}>+ Kỳ thi mới</Text>
+        </Pressable>
+        <Pressable style={styles.inlineSecondary} onPress={() => console.log('View templates')}>
+          <Text style={styles.inlineSecondaryText}>Mẫu đề thi</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 
-  const handleScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const currentY = event.nativeEvent.contentOffset.y + 120;
-      let currentSection: SectionId = 'overview';
-      SECTION_TABS.forEach(tab => {
-        const value = sectionPositions[tab.id];
-        if (typeof value === 'number' && currentY >= value) {
-          currentSection = tab.id;
-        }
-      });
-      if (currentSection !== activeTab) {
-        setActiveTab(currentSection);
-      }
-    },
-    [activeTab, sectionPositions],
+  const renderClasses = () => (
+    <View style={styles.section}>
+      <SectionHeader
+        title="Lớp học"
+        actionLabel="Quản lý lớp"
+        onAction={() => console.log('Navigate to classes')}
+      />
+      {recentClasses.length > 0 ? (
+        recentClasses.map(cls => (
+          <ItemRow
+            key={cls.id}
+            title={cls.className}
+            subtitle={`Mã: ${cls.classCode ?? '—'} • ${new Date(
+              cls.created_at,
+            ).toLocaleDateString('vi-VN')}`}
+            onPress={() => console.log('Open class', cls.id)}
+          />
+        ))
+      ) : (
+        <EmptyState message="Chưa có lớp học nào" />
+      )}
+      <View style={styles.inlineButtons}>
+        <Pressable style={styles.inlinePrimary} onPress={() => console.log('Create class')}>
+          <Text style={styles.inlinePrimaryText}>+ Lớp mới</Text>
+        </Pressable>
+        <Pressable
+          style={styles.inlineSecondary}
+          onPress={() => console.log('Invite students')}>
+          <Text style={styles.inlineSecondaryText}>Mời học viên</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 
-  if (loading && !refreshing) {
+  const renderNotifications = () => (
+    <View style={styles.section}>
+      <SectionHeader
+        title="Thông báo & cập nhật"
+        actionLabel="Xem lịch sử"
+        onAction={() => console.log('Navigate to notifications')}
+      />
+      {notificationItems.length > 0 ? (
+        notificationItems.map(item => (
+          <NotificationCard
+            key={item.id}
+            title={item.title}
+            description={
+              item.description ?? 'Trạng thái mới của hệ thống hoặc lớp học.'
+            }
+            timestamp={new Date(item.created_at).toLocaleString('vi-VN')}
+          />
+        ))
+      ) : (
+        <EmptyState message="Hiện chưa có thông báo mới" />
+      )}
+    </View>
+  );
+
+  const renderActions = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Thao tác nhanh</Text>
+      <Text style={styles.sectionSubtitle}>
+        Thực hiện các hành động phổ biến chỉ với một chạm.
+      </Text>
+      <View style={styles.actionWrap}>
+        {quickActions.map(action => (
+          <Pressable
+            key={action.label}
+            style={styles.actionButton}
+            onPress={action.onPress}>
+            <Text style={styles.actionText}>{action.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'exams':
+        return renderExams();
+      case 'classes':
+        return renderClasses();
+      case 'notifications':
+        return renderNotifications();
+      case 'actions':
+        return renderActions();
+      case 'overview':
+      default:
+        return renderOverview();
+    }
+  };
+
+  if (loading && !refreshing && !stats) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#4f46e5" />
@@ -140,26 +278,23 @@ const TeacherDashboardScreen = (_props: Props) => {
   }
 
   return (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      onScroll={handleScroll}
-      scrollEventThrottle={16}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            loadStats();
-          }}
-        />
-      }>
-      <View style={styles.screenPadding}>
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentInner}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              loadStats();
+            }}
+          />
+        }>
         <View style={styles.topBar}>
           <View>
             <Text style={styles.brandText}>PTIT Quiz</Text>
-            <Text style={styles.brandSubtitle}>Không gian dành cho giáo viên</Text>
+            <Text style={styles.brandSubtitle}>Không gian giáo viên</Text>
           </View>
           <View style={styles.userBadge}>
             <View style={styles.avatar}>
@@ -178,14 +313,14 @@ const TeacherDashboardScreen = (_props: Props) => {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabBar}>
-          {SECTION_TABS.map(tab => (
+          {TAB_ITEMS.map(tab => (
             <Pressable
               key={tab.id}
               style={[
                 styles.tabChip,
                 activeTab === tab.id && styles.tabChipActive,
               ]}
-              onPress={() => handleTabPress(tab.id)}>
+              onPress={() => setActiveTab(tab.id)}>
               <Text
                 style={[
                   styles.tabChipText,
@@ -197,185 +332,29 @@ const TeacherDashboardScreen = (_props: Props) => {
           ))}
         </ScrollView>
 
-        <View
-          onLayout={({ nativeEvent }) =>
-            registerSectionPosition('overview', nativeEvent.layout.y)
-          }>
-          <View style={styles.hero}>
-            <Text style={styles.heroTitle}>Chào mừng trở lại, cô/thầy!</Text>
-            <Text style={styles.heroSubtitle}>
-              Quản lý kỳ thi, lớp học và theo dõi số liệu mới nhất tại đây.
-            </Text>
-          </View>
+        {renderTabContent()}
+      </ScrollView>
 
-          {!!error && (
-            <Pressable style={styles.errorBox} onPress={loadStats}>
-              <Text style={styles.errorText}>{error}</Text>
-              <Text style={styles.retryText}>Chạm để thử lại</Text>
-            </Pressable>
-          )}
-
-          <View style={styles.statGrid}>
-            <StatCard
-              label="Tổng kỳ thi"
-              value={summary.totalExams ?? 0}
-              subtitle={`${summary.examsByStatus?.ongoing ?? 0} đang diễn ra`}
-              accentColor="#4f46e5"
-            />
-            <StatCard
-              label="Lớp học"
-              value={summary.totalClasses ?? 0}
-              subtitle={`${summary.totalStudents ?? 0} học sinh`}
-              accentColor="#10b981"
-            />
-            <StatCard
-              label="Yêu cầu chấm bài"
-              value={summary.pendingFeedback ?? 0}
-              subtitle="Cần phản hồi"
-              accentColor="#f59e0b"
-            />
-            <StatCard
-              label="Phiên thi đang hoạt động"
-              value={summary.activeSessions ?? 0}
-              accentColor="#0ea5e9"
-            />
-          </View>
-
-          <View style={styles.revenueRow}>
-            <View style={styles.revenueCard}>
-              <Text style={styles.revenueLabel}>Doanh thu tháng này</Text>
-              <Text style={styles.revenueValue}>
-                {formatCurrency(summary.revenueThisMonth)}
-              </Text>
-              <Text style={styles.revenueTrend}>
-                {summary.examRevenueTrend ?? 12}% so với tháng trước
-              </Text>
-            </View>
-            <View style={styles.revenueCardSecondary}>
-              <Text style={styles.revenueLabel}>Phiên thi cần chú ý</Text>
-              <Text style={styles.revenueValue}>
-                {summary.examsByStatus?.upcoming ?? 0}
-              </Text>
-              <Text style={styles.revenueTrend}>Chuẩn bị mở</Text>
-            </View>
-          </View>
-        </View>
-
-        <View
-          style={styles.section}
-          onLayout={({ nativeEvent }) =>
-            registerSectionPosition('exams', nativeEvent.layout.y)
-          }>
-          <SectionHeader
-            title="Kỳ thi gần đây"
-            actionLabel="Xem tất cả"
-            onAction={() => console.log('Navigate to exams')}
-          />
-          {recentExams.length > 0 ? (
-            recentExams.map(exam => (
-              <ItemRow
-                key={exam.id}
-                title={exam.title}
-                subtitle={new Date(exam.created_at).toLocaleDateString('vi-VN')}
-                onPress={() => console.log('Open exam', exam.id)}
-              />
-            ))
-          ) : (
-            <EmptyState message="Chưa có kỳ thi nào" />
-          )}
-        </View>
-
-        <View
-          style={styles.section}
-          onLayout={({ nativeEvent }) =>
-            registerSectionPosition('classes', nativeEvent.layout.y)
-          }>
-          <SectionHeader
-            title="Lớp học gần đây"
-            actionLabel="Xem tất cả"
-            onAction={() => console.log('Navigate to classes')}
-          />
-          {recentClasses.length > 0 ? (
-            recentClasses.map(cls => (
-              <ItemRow
-                key={cls.id}
-                title={cls.className}
-                subtitle={`Mã: ${cls.classCode ?? '—'} • ${new Date(
-                  cls.created_at,
-                ).toLocaleDateString('vi-VN')}`}
-                onPress={() => console.log('Open class', cls.id)}
-              />
-            ))
-          ) : (
-            <EmptyState message="Chưa có lớp học nào" />
-          )}
-        </View>
-
-        <View
-          style={styles.section}
-          onLayout={({ nativeEvent }) =>
-            registerSectionPosition('notifications', nativeEvent.layout.y)
-          }>
-          <SectionHeader
-            title="Thông báo & cập nhật"
-            actionLabel="Xem lịch sử"
-            onAction={() => console.log('Navigate to notifications')}
-          />
-          {notificationItems.length > 0 ? (
-            notificationItems.map(item => (
-              <NotificationCard
-                key={item.id}
-                title={item.title}
-                description={
-                  item.description ?? 'Trạng thái mới của hệ thống hoặc lớp học.'
-                }
-                timestamp={new Date(item.created_at).toLocaleString('vi-VN')}
-              />
-            ))
-          ) : (
-            <EmptyState message="Hiện chưa có thông báo mới" />
-          )}
-        </View>
-
-        <View
-          style={styles.section}
-          onLayout={({ nativeEvent }) =>
-            registerSectionPosition('actions', nativeEvent.layout.y)
-          }>
-          <Text style={styles.sectionTitle}>Gợi ý thao tác nhanh</Text>
-          <View style={styles.actionWrap}>
-            {quickActions.map(action => (
-              <Pressable
-                key={action.label}
-                style={styles.actionButton}
-                onPress={action.onPress}>
-                <Text style={styles.actionText}>{action.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.bottomNav}>
-          {SECTION_TABS.map(tab => (
-            <Pressable
-              key={tab.id}
+      <View style={styles.bottomNav}>
+        {TAB_ITEMS.map(tab => (
+          <Pressable
+            key={tab.id}
+            style={[
+              styles.bottomNavItem,
+              activeTab === tab.id && styles.bottomNavItemActive,
+            ]}
+            onPress={() => setActiveTab(tab.id)}>
+            <Text
               style={[
-                styles.bottomNavItem,
-                activeTab === tab.id && styles.bottomNavItemActive,
-              ]}
-              onPress={() => handleTabPress(tab.id)}>
-              <Text
-                style={[
-                  styles.bottomNavText,
-                  activeTab === tab.id && styles.bottomNavTextActive,
-                ]}>
-                {tab.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+                styles.bottomNavText,
+                activeTab === tab.id && styles.bottomNavTextActive,
+              ]}>
+              {tab.label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
-    </ScrollView>
+    </View>
   );
 };
 
@@ -442,11 +421,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   content: {
-    paddingBottom: 32,
+    flex: 1,
   },
-  screenPadding: {
+  contentInner: {
     paddingHorizontal: 20,
+    paddingBottom: 120,
     paddingTop: 20,
+    gap: 16,
   },
   center: {
     flex: 1,
@@ -462,7 +443,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
   },
   brandText: {
     fontSize: 20,
@@ -503,7 +483,6 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     paddingVertical: 6,
-    gap: 8,
   },
   tabChip: {
     paddingHorizontal: 16,
@@ -604,7 +583,6 @@ const styles = StyleSheet.create({
     color: '#c7d2fe',
   },
   section: {
-    marginTop: 24,
     borderRadius: 18,
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -626,6 +604,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#4f46e5',
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#475569',
+    marginBottom: 12,
+  },
+  inlineButtons: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  inlinePrimary: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#4f46e5',
+  },
+  inlinePrimaryText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  inlineSecondary: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+  },
+  inlineSecondaryText: {
+    color: '#4338ca',
+    fontWeight: '600',
   },
   itemRow: {
     borderWidth: 1,
@@ -672,25 +683,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   bottomNav: {
-    marginTop: 24,
-    borderRadius: 20,
-    padding: 14,
-    backgroundColor: '#111827',
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 24,
+    borderRadius: 18,
+    padding: 12,
+    backgroundColor: '#0f172a',
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    justifyContent: 'space-between',
   },
   bottomNavItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    flex: 1,
+    marginHorizontal: 4,
     borderRadius: 999,
-    backgroundColor: '#1f2937',
+    paddingVertical: 8,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
   bottomNavItemActive: {
     backgroundColor: '#4f46e5',
   },
   bottomNavText: {
-    color: '#f1f5f9',
+    color: '#94a3b8',
     fontWeight: '600',
     fontSize: 12,
   },
