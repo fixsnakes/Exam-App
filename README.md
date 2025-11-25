@@ -1,3 +1,6 @@
+Change .env example to .env and set up
+Connect to emu
+if emu not connect to host:5005, you should try: adb reverse tcp:5005 tcp:5005
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
 # Getting Started
